@@ -1,0 +1,15 @@
+{
+  "name": "Basic groove",
+  "beats_per_bar": 4,
+  "subdivisions": 2,
+  "notes": [
+    { "beat": 1, "sub": 1, "dynamic": "accent" },
+    { "beat": 1, "sub": 2, "dynamic": "tap" },
+    { "beat": 2, "sub": 1, "dynamic": "loud_accent" },
+    { "beat": 2, "sub": 2, "dynamic": "tap" },
+    { "beat": 3, "sub": 1, "dynamic": "accent" },
+    { "beat": 3, "sub": 2, "dynamic": "low_tap" },
+    { "beat": 4, "sub": 1, "dynamic": "loud_accent" },
+    { "beat": 4, "sub": 2, "dynamic": "tap" }
+  ]
+}

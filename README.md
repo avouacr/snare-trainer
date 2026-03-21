@@ -1,3 +1,1 @@
 # snare-trainer
-
-

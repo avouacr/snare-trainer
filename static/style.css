@@ -1,0 +1,338 @@
+/* ─── Reset & base ───────────────────────────────────────────────────────────── */
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:        #111;
+  --surface:   #1c1c1e;
+  --border:    #333;
+  --text:      #e5e5ea;
+  --muted:     #888;
+  --green:     #30d158;
+  --yellow:    #ffd60a;
+  --red:       #ff453a;
+  --accent:    #0a84ff;
+  --radius:    8px;
+  font-family: 'SF Mono', 'Fira Code', 'Menlo', monospace;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  padding: 1rem 1.5rem 3rem;
+}
+
+/* ─── Header ─────────────────────────────────────────────────────────────────── */
+
+header h1 {
+  font-size: 1.25rem;
+  font-weight: 600;
+  letter-spacing: .05em;
+  color: var(--accent);
+  margin-bottom: 1.25rem;
+}
+
+/* ─── Panels ─────────────────────────────────────────────────────────────────── */
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1rem 1.25rem;
+  margin-bottom: 1rem;
+}
+
+.panel h2 {
+  font-size: .75rem;
+  text-transform: uppercase;
+  letter-spacing: .1em;
+  color: var(--muted);
+  margin-bottom: .75rem;
+}
+
+.feedback-row {
+  display: flex;
+  gap: 1rem;
+}
+
+.panel-half {
+  flex: 1;
+  min-width: 0;
+}
+
+/* ─── Controls ───────────────────────────────────────────────────────────────── */
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: .75rem;
+  margin-bottom: 1rem;
+}
+
+.control-group {
+  display: flex;
+  flex-direction: column;
+  gap: .25rem;
+}
+
+.control-group label {
+  font-size: .7rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .05em;
+}
+
+.control-group input[type=number],
+.control-group select {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--text);
+  padding: .35rem .5rem;
+  font: inherit;
+}
+
+.sensitivity-group input[type=range] {
+  width: 120px;
+}
+
+.latency-hint {
+  font-size: .75rem;
+  color: var(--yellow);
+  min-height: 1.2rem;
+  margin-bottom: .25rem;
+}
+
+.btn-primary, .btn-secondary {
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font: inherit;
+  font-size: .875rem;
+  padding: .4rem 1.1rem;
+  transition: opacity .1s;
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+  min-width: 5rem;
+}
+
+.btn-primary.running {
+  background: var(--red);
+}
+
+.btn-secondary {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+
+.btn-primary:hover, .btn-secondary:hover { opacity: .85; }
+
+/* ─── Calibration status ──────────────────────────────────────────────────────── */
+
+#cal-status { font-size: .85rem; min-height: 1.4rem; margin-bottom: .25rem; }
+#cal-progress { font-size: .8rem; color: var(--muted); min-height: 1.2rem; margin-bottom: .5rem; }
+.cal-active { color: var(--yellow); }
+.cal-done   { color: var(--green); }
+
+/* ─── Pattern strip ──────────────────────────────────────────────────────────── */
+
+.pattern-strip {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  padding-bottom: .25rem;
+}
+
+.strip-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 42px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: .3rem .25rem;
+  gap: 3px;
+  transition: background .1s;
+}
+
+.strip-cell.on-beat { border-color: #555; }
+
+.strip-cell.active {
+  background: #222;
+  border-color: var(--accent);
+}
+
+.beat-num {
+  font-size: .6rem;
+  color: var(--muted);
+}
+
+.strip-note {
+  font-size: .85rem;
+  font-weight: 700;
+  padding: 2px 4px;
+  border-radius: 3px;
+}
+
+.strip-rest { font-size: .75rem; color: #444; }
+
+/* Dynamic colours on strip */
+.dyn-loud_accent { color: #fff;          background: #ff453a44; }
+.dyn-accent      { color: var(--yellow); background: #ffd60a22; }
+.dyn-tap         { color: #7ec8e3;       background: #7ec8e322; }
+.dyn-low_tap     { color: #666;          background: transparent; }
+
+/* ─── Timing panel ───────────────────────────────────────────────────────────── */
+
+.timing-legend {
+  display: flex;
+  justify-content: space-between;
+  font-size: .65rem;
+  color: var(--muted);
+  margin-bottom: .4rem;
+}
+
+.timing-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-height: 3rem;
+}
+
+.timing-row {
+  display: flex;
+  align-items: center;
+  gap: .6rem;
+}
+
+.timing-track {
+  position: relative;
+  flex: 1;
+  height: 10px;
+  background: #222;
+  border-radius: 5px;
+  overflow: visible;
+}
+
+.timing-center {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  width: 1px;
+  height: 100%;
+  background: #444;
+}
+
+.timing-dot {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.timing-label {
+  font-size: .65rem;
+  width: 4rem;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.hit-green  { background: var(--green);  color: var(--green); }
+.hit-yellow { background: var(--yellow); color: var(--yellow); }
+.hit-red    { background: var(--red);    color: var(--red); }
+
+/* ─── Dynamics panel ─────────────────────────────────────────────────────────── */
+
+.dynamics-row {
+  display: flex;
+  gap: .75rem;
+  align-items: flex-start;
+}
+
+.dynamics-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  flex: 1;
+  min-height: 3rem;
+}
+
+.dyn-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 36px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 3px 2px;
+  gap: 2px;
+}
+
+.dyn-expected {
+  font-size: .6rem;
+  color: var(--muted);
+}
+
+.dyn-detected {
+  font-size: .8rem;
+  font-weight: 700;
+}
+
+.dyn-ok        { color: var(--green); }
+.dyn-close     { color: var(--yellow); }
+.dyn-off       { color: var(--red); }
+.dyn-unmatched { color: #555; }
+
+/* ─── Velocity meter ─────────────────────────────────────────────────────────── */
+
+.vel-meter {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: .35rem;
+  flex-shrink: 0;
+}
+
+.vel-track {
+  width: 18px;
+  height: 100px;
+  background: #222;
+  border-radius: 9px;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: flex-end;
+}
+
+.vel-fill {
+  width: 100%;
+  height: 0%;
+  background: linear-gradient(to top, var(--green), var(--yellow), var(--red));
+  border-radius: 9px;
+  transition: height 0.05s ease-out;
+}
+
+.vel-label {
+  font-size: .65rem;
+  color: var(--muted);
+}
+
+
+/* ─── Placeholder text ───────────────────────────────────────────────────────── */
+
+.placeholder {
+  font-size: .8rem;
+  color: #444;
+  font-style: italic;
+}

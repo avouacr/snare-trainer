@@ -1,0 +1,11 @@
+{
+  "name": "Samba reggae",
+  "beats_per_bar": 1,
+  "subdivisions": 4,
+  "notes": [
+    { "beat": 1, "sub": 1, "dynamic": "low_tap" },
+    { "beat": 1, "sub": 2, "dynamic": "low_tap" },
+    { "beat": 1, "sub": 3, "dynamic": "loud_accent" },
+    { "beat": 1, "sub": 4, "dynamic": "loud_accent" }
+  ]
+}

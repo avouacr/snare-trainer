@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Snare Trainer</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header>
+    <h1>Snare Trainer</h1>
+  </header>
+
+  <main>
+
+    <!-- Controls -->
+    <section class="controls">
+      <div class="control-group">
+        <label for="pattern-select">Pattern</label>
+        <select id="pattern-select"></select>
+      </div>
+
+      <div class="control-group">
+        <label for="bpm-input">BPM</label>
+        <input id="bpm-input" type="number" min="40" max="300" value="90" style="width:5rem">
+      </div>
+
+      <button id="btn-play" class="btn-primary">Start</button>
+
+      <button id="btn-calibrate" class="btn-secondary">Calibrate</button>
+
+      <div class="control-group sensitivity-group">
+        <label for="sensitivity-slider">Sensitivity <span id="sensitivity-value">3.0</span>×</label>
+        <input id="sensitivity-slider" type="range" min="1.5" max="6.0" step="0.1" value="3.0">
+      </div>
+
+      <div class="control-group">
+        <label for="input-gain-slider">Input gain <span id="input-gain-value">3×</span></label>
+        <input id="input-gain-slider" type="range" min="1" max="10" step="0.5" value="3" style="width:100px">
+      </div>
+
+      <div class="control-group">
+        <label for="latency-input">Latency offset <span id="latency-display">200ms</span></label>
+        <input id="latency-input" type="range" min="-50" max="250" step="1" value="200" style="width:120px">
+      </div>
+    </section>
+
+    <div id="latency-hint" class="latency-hint"></div>
+
+    <!-- Calibration status -->
+    <div id="cal-status"></div>
+    <div id="cal-progress"></div>
+
+    <!-- Pattern strip -->
+    <section class="panel">
+      <h2>Pattern</h2>
+      <div id="pattern-strip" class="pattern-strip"></div>
+    </section>
+
+    <!-- Feedback row -->
+    <div class="feedback-row">
+
+      <!-- Timing panel -->
+      <section class="panel panel-half">
+        <h2>Timing</h2>
+        <div class="timing-legend">
+          <span>early</span>
+          <span>on time</span>
+          <span>late</span>
+        </div>
+        <div id="timing-bars" class="timing-bars"></div>
+      </section>
+
+      <!-- Dynamics panel + velocity meter -->
+      <section class="panel panel-half">
+        <h2>Dynamics</h2>
+        <div class="dynamics-row">
+          <div id="dynamics-grid" class="dynamics-grid"></div>
+          <div class="vel-meter">
+            <div class="vel-track">
+              <div id="vel-fill" class="vel-fill"></div>
+            </div>
+            <div id="vel-label" class="vel-label">—</div>
+          </div>
+        </div>
+      </section>
+
+    </div>
+
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
