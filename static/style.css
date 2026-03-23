@@ -144,51 +144,9 @@ header h1 {
 /* ─── Pattern strip ──────────────────────────────────────────────────────────── */
 
 .pattern-strip {
-  display: flex;
-  gap: 4px;
+  line-height: 0;
   overflow-x: auto;
-  padding-bottom: .25rem;
 }
-
-.strip-cell {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  min-width: 42px;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  padding: .3rem .25rem;
-  gap: 3px;
-  transition: background .1s;
-}
-
-.strip-cell.on-beat { border-color: #555; }
-
-.strip-cell.active {
-  background: #222;
-  border-color: var(--accent);
-}
-
-.beat-num {
-  font-size: .6rem;
-  color: var(--muted);
-}
-
-.strip-note {
-  font-size: .85rem;
-  font-weight: 700;
-  padding: 2px 4px;
-  border-radius: 3px;
-}
-
-.strip-rest { font-size: .75rem; color: #444; }
-
-/* Dynamic colours on strip */
-.dyn-loud_accent { color: #fff;          background: #ff453a44; }
-.dyn-accent      { color: var(--yellow); background: #ffd60a22; }
-.dyn-tap         { color: #7ec8e3;       background: #7ec8e322; }
-.dyn-low_tap     { color: #666;          background: transparent; }
 
 /* ─── Timing panel ───────────────────────────────────────────────────────────── */
 

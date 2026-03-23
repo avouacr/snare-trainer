@@ -18,6 +18,9 @@ const MATCH_WINDOW_SEC = 0.5;
 
 const CAL_STEPS    = ['loud_accent', 'accent', 'tap', 'low_tap'];
 const CAL_HITS_NEEDED = 3;
+
+const CAL_DELAY_BPM   = 80;
+const CAL_DELAY_BEATS = 8;
 // True-peak defaults (with 3× input gain). Calibrate for your setup.
 const DEFAULT_CAL  = { loud_accent: 0.8, accent: 0.5, tap: 0.22, low_tap: 0.07 };
 
@@ -73,11 +76,13 @@ function peakToDynamic(peak) {
 function dynamicOrdinal(d) { return DYNAMICS.indexOf(d); }
 
 function buildBeatList(pat) {
-  const beats = pat.notes.map(n => ({
-    pos: (n.beat - 1) * pat.subdivisions + (n.sub - 1),
-    dynamic: n.dynamic,
-  }));
-  beats.sort((a, b) => a.pos - b.pos);
+  const beats = [];
+  for (let i = 0; i < pat.pattern.length; i++) {
+    const ch = pat.pattern[i];
+    if (ch === 'X') beats.push({ pos: i, dynamic: 'loud_accent' });
+    else if (ch === 'o') beats.push({ pos: i, dynamic: 'low_tap' });
+    // '-' = rest, omitted
+  }
   return beats;
 }
 
@@ -94,9 +99,7 @@ async function initAudio() {
     );
     if (auto > 0) {
       latencyOffsetMs = auto;
-      document.getElementById('latency-input').value = auto;
       document.getElementById('latency-display').textContent = `${auto}ms`;
-      showLatencyHint(auto);
     }
   }
 }
@@ -178,18 +181,6 @@ function scheduleSnareHit(time, dynamic) {
   osc.stop(time + 0.08);
 }
 
-// Subtle subdivision tick so the drummer can hear the grid.
-function scheduleMetronomeTick(time, isOnBeat) {
-  const osc  = audioCtx.createOscillator();
-  const gain = audioCtx.createGain();
-  osc.connect(gain);
-  gain.connect(audioCtx.destination);
-  osc.frequency.value = isOnBeat ? 1000 : 700;
-  gain.gain.setValueAtTime(isOnBeat ? 0.2 : 0.08, time);
-  gain.gain.exponentialRampToValueAtTime(0.0001, time + 0.03);
-  osc.start(time);
-  osc.stop(time + 0.04);
-}
 
 // ─── Metronome ────────────────────────────────────────────────────────────────
 
@@ -216,16 +207,12 @@ function stopMetronome() {
 function schedulerTick() {
   if (!isRunning || !pattern) return;
   const beatList  = buildBeatList(pattern);
-  const totalSubs = pattern.beats_per_bar * pattern.subdivisions;
-  const subdivDur = 60 / (bpm * pattern.subdivisions);
+  const totalSubs = pattern.pattern.length;
+  const subdivDur = 60 / (bpm * 4); // always 16th notes
 
   while (nextBeatTime < audioCtx.currentTime + LOOKAHEAD_SEC) {
-    const subPos    = nextBeatIndex % totalSubs;
-    const isOnBeat  = subPos % pattern.subdivisions === 0;
-
-    scheduleMetronomeTick(nextBeatTime, isOnBeat);
-
-    const note = beatList.find(b => b.pos === subPos);
+    const subPos = nextBeatIndex % totalSubs;
+    const note   = beatList.find(b => b.pos === subPos);
     if (note) {
       scheduleSnareHit(nextBeatTime, note.dynamic);
       expectedBeats.push({
@@ -250,7 +237,10 @@ function schedulerTick() {
 
 function processOnset({ time, peak }) {
   const detectedDynamic = peakToDynamic(peak);
-  if (calState !== null) { handleCalOnset(peak); return; }
+  if (calState !== null) {
+    if (calState.phase === 'delay') { handleDelayCalOnset(time); return; }
+    handleCalOnset(peak); return;
+  }
   if (!isRunning) return;
 
   let best = null, bestDist = Infinity;
@@ -276,7 +266,48 @@ function processOnset({ time, peak }) {
 // ─── Calibration ─────────────────────────────────────────────────────────────
 
 function startCalibration() {
-  calState = { step: 0, readings: [] };
+  if (isRunning) stopMetronome();
+  calState = { phase: 'delay', beats: [], taps: [] };
+  scheduleDelayCalBeats();
+  renderDelayCalPrompt();
+}
+
+function scheduleDelayCalBeats() {
+  const beatDur = 60 / CAL_DELAY_BPM;
+  let t = audioCtx.currentTime + 0.5;
+  for (let i = 0; i < CAL_DELAY_BEATS; i++) {
+    scheduleSnareHit(t, 'accent');
+    calState.beats.push({ time: t, matched: false });
+    t += beatDur;
+  }
+  setTimeout(finalizeDelayCalibration, Math.ceil((t - audioCtx.currentTime + 0.5) * 1000));
+}
+
+function handleDelayCalOnset(time) {
+  let best = null, bestDist = Infinity;
+  for (const b of calState.beats) {
+    if (b.matched) continue;
+    const dist = Math.abs(time - b.time);
+    if (dist < bestDist && dist < 0.5) { bestDist = dist; best = b; }
+  }
+  if (best) {
+    best.matched = true;
+    calState.taps.push(time - best.time);
+    updateDelayCalProgress();
+  }
+}
+
+function finalizeDelayCalibration() {
+  if (!calState || calState.phase !== 'delay') return;
+  const taps = calState.taps;
+  if (taps.length >= 3) {
+    const sorted = [...taps].sort((a, b) => a - b);
+    const median = sorted[Math.floor(sorted.length / 2)];
+    latencyOffsetMs = Math.max(-50, Math.min(500, Math.round(median * 1000)));
+    document.getElementById('latency-display').textContent = `${latencyOffsetMs}ms`;
+    localStorage.setItem(LS_LATENCY, String(latencyOffsetMs));
+  }
+  calState = { phase: 'strength', step: 0, readings: [] };
   renderCalPrompt();
 }
 
@@ -303,37 +334,81 @@ function handleCalOnset(peak) {
 function renderPatternStrip() {
   const container = document.getElementById('pattern-strip');
   if (!pattern) { container.innerHTML = '<em>No pattern loaded</em>'; return; }
-  container.innerHTML = '';
 
-  const totalSubs  = pattern.beats_per_bar * pattern.subdivisions;
-  const beatList   = buildBeatList(pattern);
-  const currentSub = isRunning ? (nextBeatIndex - 1 + totalSubs) % totalSubs : -1;
+  const W = container.clientWidth;
+  if (W === 0) { requestAnimationFrame(renderPatternStrip); return; }
 
-  for (let i = 0; i < totalSubs; i++) {
-    const cell = document.createElement('div');
-    cell.className = 'strip-cell';
-    if (i % pattern.subdivisions === 0) cell.classList.add('on-beat');
-    if (i === currentSub) cell.classList.add('active');
+  // Always show 2 bars of 4/4 = 32 16th notes, repeating the pattern as needed
+  const BARS = 2, N = 16, TOTAL = BARS * N;
+  const seq  = Array.from({ length: TOTAL }, (_, i) => pattern.pattern[i % pattern.pattern.length]);
 
-    if (i % pattern.subdivisions === 0) {
-      const num = document.createElement('div');
-      num.className = 'beat-num';
-      num.textContent = i / pattern.subdivisions + 1;
-      cell.appendChild(num);
-    }
+  const H     = 92;
+  const mL    = 52, mR = 22;
+  const lineH = 9;
+  const sT    = 34;                  // staff top (shifted down to leave room for accents)
+  const midY  = sT + 2 * lineH;     // middle staff line (snare position)
+  const stemT = sT - 22;            // top of stems
+  const beamH = 4;
+  const barW  = (W - mL - mR) / BARS;
+  const noteW = barW / N;
 
-    const note = beatList.find(b => b.pos === i);
-    const el   = document.createElement('div');
-    if (note) {
-      el.className   = `strip-note dyn-${note.dynamic}`;
-      el.textContent = DYNAMIC_LABELS[note.dynamic];
-    } else {
-      el.className   = 'strip-rest';
-      el.textContent = '·';
-    }
-    cell.appendChild(el);
-    container.appendChild(cell);
+  const sc = '#484848';  // staff lines, stems, beams
+  const nc = '#d4d4d8';  // loud accent notehead
+  const dc = '#2c2c2e';  // low tap notehead (dim)
+
+  // x centre for note i
+  const nx = i => mL + Math.floor(i / N) * barW + (i % N + 0.5) * noteW;
+
+  const p = [];
+
+  // Staff lines
+  for (let l = 0; l < 5; l++)
+    p.push(`<line x1="${mL - 4}" y1="${sT + l*lineH}" x2="${W - mR}" y2="${sT + l*lineH}" stroke="${sc}" stroke-width="1"/>`);
+
+  // Percussion clef: two thick vertical bars
+  p.push(`<rect x="8"  y="${sT}" width="3.5" height="${4*lineH}" fill="${sc}"/>`);
+  p.push(`<rect x="15" y="${sT}" width="3.5" height="${4*lineH}" fill="${sc}"/>`);
+
+  // Time signature 4/4
+  const tf = `text-anchor="middle" dominant-baseline="middle" font-size="15" font-family="serif" fill="${nc}"`;
+  p.push(`<text x="34" y="${sT +   lineH}" ${tf}>4</text>`);
+  p.push(`<text x="34" y="${sT + 3*lineH}" ${tf}>4</text>`);
+
+  // Barlines: opening, middle, and final double barline
+  p.push(`<line x1="${mL}" y1="${sT}" x2="${mL}" y2="${sT + 4*lineH}" stroke="${sc}" stroke-width="1.5"/>`);
+  for (let b = 1; b <= BARS; b++) {
+    const bx = mL + b * barW;
+    p.push(`<line x1="${bx}" y1="${sT}" x2="${bx}" y2="${sT + 4*lineH}" stroke="${sc}" stroke-width="1.5"/>`);
+    if (b === BARS)
+      p.push(`<line x1="${bx + 4}" y1="${sT}" x2="${bx + 4}" y2="${sT + 4*lineH}" stroke="${sc}" stroke-width="4"/>`);
   }
+
+  // Beams: 2 beams per beat group (8 beat groups = 4 beats × 2 bars)
+  for (let beat = 0; beat < 8; beat++) {
+    const x1 = nx(beat*4) - 1, x2 = nx(beat*4 + 3) + 1;
+    p.push(`<rect x="${x1}" y="${stemT}"         width="${x2 - x1}" height="${beamH}" fill="${sc}"/>`);
+    p.push(`<rect x="${x1}" y="${stemT+beamH+2}" width="${x2 - x1}" height="${beamH}" fill="${sc}"/>`);
+  }
+
+  // Stems, noteheads, and accent marks
+  const accentY = stemT - 7;           // accent mark row, above the beams
+  for (let i = 0; i < TOTAL; i++) {
+    const x = nx(i), ch = seq[i];
+
+    // Stem
+    p.push(`<line x1="${x}" y1="${midY - 3}" x2="${x}" y2="${stemT + beamH}" stroke="${sc}" stroke-width="1.2"/>`);
+
+    if (ch === 'X') {
+      // Loud accent: bright notehead + ">" mark below the staff
+      p.push(`<ellipse cx="${x}" cy="${midY}" rx="5" ry="3.5" fill="${nc}"/>`);
+      p.push(`<path d="M${x-4},${accentY-3} L${x+4},${accentY} L${x-4},${accentY+3}" stroke="${nc}" stroke-width="1.5" fill="none" stroke-linecap="round"/>`);
+    } else if (ch === 'o') {
+      // Low tap: dim notehead, no accent mark
+      p.push(`<ellipse cx="${x}" cy="${midY}" rx="5" ry="3.5" fill="${dc}"/>`);
+    }
+  }
+
+  container.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}">${p.join('')}</svg>`;
 }
 
 // ─── Render: feedback panels ──────────────────────────────────────────────────
@@ -422,10 +497,22 @@ function renderDynamicsPanel() {
 
 // ─── Render: calibration ──────────────────────────────────────────────────────
 
+function renderDelayCalPrompt() {
+  const el = document.getElementById('cal-status');
+  el.textContent = `Delay calibration: tap on each beat (${CAL_DELAY_BEATS} beats at ${CAL_DELAY_BPM} BPM)…`;
+  el.className   = 'cal-active';
+  document.getElementById('cal-progress').textContent = `0 / ${CAL_DELAY_BEATS}`;
+}
+
+function updateDelayCalProgress() {
+  document.getElementById('cal-progress').textContent =
+    `${calState.taps.length} / ${CAL_DELAY_BEATS}`;
+}
+
 function renderCalPrompt() {
   const dyn = CAL_STEPS[calState.step];
   const el  = document.getElementById('cal-status');
-  el.textContent = `Step ${calState.step + 1}/${CAL_STEPS.length}: hit "${dyn.replace('_', ' ')}" (${DYNAMIC_LABELS[dyn]}) — ${CAL_HITS_NEEDED}×`;
+  el.textContent = `Stroke calibration ${calState.step + 1}/${CAL_STEPS.length}: hit "${dyn.replace('_', ' ')}" (${DYNAMIC_LABELS[dyn]}) — ${CAL_HITS_NEEDED}×`;
   el.className   = 'cal-active';
   document.getElementById('cal-progress').textContent = '';
 }
@@ -437,10 +524,10 @@ function updateCalProgress() {
 
 function renderCalDone() {
   const el = document.getElementById('cal-status');
-  el.textContent = 'Calibration complete — thresholds saved.';
+  el.textContent = `Calibration complete — latency: ${latencyOffsetMs}ms, thresholds saved.`;
   el.className   = 'cal-done';
   document.getElementById('cal-progress').textContent = '';
-  setTimeout(() => { el.textContent = ''; el.className = ''; }, 3000);
+  setTimeout(() => { el.textContent = ''; el.className = ''; }, 4000);
 }
 
 // ─── Render: velocity meter ───────────────────────────────────────────────────
@@ -459,33 +546,34 @@ function updatePlayButton() {
   btn.classList.toggle('running', isRunning);
 }
 
-function showLatencyHint(ms) {
-  const el = document.getElementById('latency-hint');
-  if (!el) return;
-  el.textContent = `Auto-detected ~${ms}ms — adjust if hits still appear consistently late.`;
-  setTimeout(() => { el.textContent = ''; }, 6000);
-}
 
 // ─── Pattern loading from server ─────────────────────────────────────────────
 
+let allPatterns = [];
+
 async function fetchPatterns() {
-  const res   = await fetch('/api/patterns');
-  const names = await res.json();
+  const res  = await fetch('/patterns/patterns.json');
+  allPatterns = await res.json();
 
   const sel = document.getElementById('pattern-select');
   sel.innerHTML = '';
-  for (const name of names) {
+  for (const pat of allPatterns) {
     const opt = document.createElement('option');
-    opt.value = name;
-    opt.textContent = name;
+    opt.value = pat.name;
+    opt.textContent = pat.name;
     sel.appendChild(opt);
   }
-  if (names.length > 0) await loadPattern(names[0]);
+  if (allPatterns.length > 0) loadPattern(allPatterns[0].name);
 }
 
-async function loadPattern(name) {
-  const res = await fetch(`/patterns/${name}.json`);
-  pattern   = await res.json();
+function loadPattern(name) {
+  pattern = allPatterns.find(p => p.name === name) || null;
+  if (isRunning) {
+    nextBeatIndex = 0;
+    expectedBeats = [];
+    hitHistory    = [];
+    renderFeedback();
+  }
   renderPatternStrip();
 }
 
@@ -509,12 +597,6 @@ async function onCalibrate() {
   startCalibration();
 }
 
-function onLatencyChange(val) {
-  latencyOffsetMs = parseInt(val, 10) || 0;
-  document.getElementById('latency-display').textContent = `${latencyOffsetMs}ms`;
-  localStorage.setItem(LS_LATENCY, String(latencyOffsetMs));
-}
-
 function onSensitivity(val) {
   document.getElementById('sensitivity-value').textContent = parseFloat(val).toFixed(1);
   applyThreshold(parseFloat(val));
@@ -523,7 +605,6 @@ function onSensitivity(val) {
 // ─── Init ─────────────────────────────────────────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', async () => {
-  document.getElementById('latency-input').value = latencyOffsetMs;
   document.getElementById('latency-display').textContent = `${latencyOffsetMs}ms`;
 
   document.getElementById('btn-play').addEventListener('click', onPlayStop);
@@ -531,15 +612,18 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('pattern-select').addEventListener('change', () => {
     loadPattern(document.getElementById('pattern-select').value);
   });
+  document.getElementById('bpm-input').addEventListener('input', (e) => {
+    const v = parseInt(e.target.value, 10);
+    if (v >= 40 && v <= 300) bpm = v;
+  });
   document.getElementById('sensitivity-slider').addEventListener('input', (e) => {
     onSensitivity(e.target.value);
-  });
-  document.getElementById('latency-input').addEventListener('input', (e) => {
-    onLatencyChange(e.target.value);
   });
   document.getElementById('input-gain-slider').addEventListener('input', (e) => {
     applyInputGain(parseFloat(e.target.value));
   });
+
+  window.addEventListener('resize', renderPatternStrip);
 
   await fetchPatterns();
 });
