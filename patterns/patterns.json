@@ -1,7 +1,10 @@
 [
-  { "name": "Samba reggae",  "pattern": "ooXX" },
-  { "name": "Afro",         "pattern": "XooXooXo" },
-  { "name": "Olodum",       "pattern": "XooXooXXooXoXooo" },
-  { "name": "Olodum_5","pattern": "XooXooXXooXoXoooXooXooXXooXXXXXo" },
-  { "name": "Funk","pattern": "ooXoXooXoXooXoXoooXoXooXooXoooXX" }
+  { "name": "Afro", "pattern": "XooXooXo" },
+  { "name": "Bossa Nova", "pattern": "XooXooXooXooXooo" },
+  { "name": "Funk", "pattern": "ooXoXooXoXooXoXoooXoXooXooXoooXX" },
+  { "name": "Olodum", "pattern": "XooXooXXooXoXooo" },
+  { "name": "Olodum_5", "pattern": "XooXooXXooXoXoooXooXooXXooXXXXXo" },
+  { "name": "Reggae", "pattern": "ooXX" },
+  { "name": "Rumba", "pattern": "XooXoooXooXoXooo" },
+  { "name": "Son", "pattern": "XooXooXoooXoXooo" }
 ]

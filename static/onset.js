@@ -24,8 +24,12 @@ class OnsetProcessor extends AudioWorkletProcessor {
     this._windowSum         = 0; // sum of squares for RMS
 
     this._thresholdRatio = THRESHOLD_RATIO;
+    this._reportingRMS   = false;
+    this._lastInstantRMS = 0;
     this.port.onmessage = (e) => {
-      if (e.data.type === 'setThreshold') this._thresholdRatio = e.data.value;
+      if (e.data.type === 'setThreshold')   this._thresholdRatio = e.data.value;
+      else if (e.data.type === 'startRMSReport') this._reportingRMS = true;
+      else if (e.data.type === 'stopRMSReport')  this._reportingRMS = false;
     };
   }
 
@@ -45,6 +49,7 @@ class OnsetProcessor extends AudioWorkletProcessor {
       this._windowIdx = (this._windowIdx + 1) % WINDOW_SAMPLES;
 
       const instantRMS = Math.sqrt(Math.max(0, this._windowSum) / WINDOW_SAMPLES);
+      this._lastInstantRMS = instantRMS;
 
       this._bgEnergy =
         this._bgEnergy * BACKGROUND_DECAY + instantRMS * (1 - BACKGROUND_DECAY);
@@ -70,6 +75,10 @@ class OnsetProcessor extends AudioWorkletProcessor {
           peak: truePeak,
         });
       }
+    }
+
+    if (this._reportingRMS) {
+      this.port.postMessage({ type: 'rms', instantRMS: this._lastInstantRMS, bgEnergy: this._bgEnergy });
     }
 
     return true;

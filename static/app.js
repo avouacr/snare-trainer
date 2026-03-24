@@ -16,7 +16,7 @@ const LOOKAHEAD_SEC = 0.1;
 const HISTORY_SIZE = 16;
 const MATCH_WINDOW_SEC = 0.5;
 
-const CAL_STEPS    = ['loud_accent', 'accent', 'tap', 'low_tap'];
+const CAL_STEPS    = ['loud_accent', 'low_tap'];
 const CAL_HITS_NEEDED = 3;
 
 const CAL_DELAY_BPM   = 80;
@@ -46,7 +46,8 @@ let hitHistory    = [];
 let cal      = loadCalibration();
 let calState = null;
 
-let latencyOffsetMs = parseInt(localStorage.getItem(LS_LATENCY) || '200', 10);
+const _storedLatency = parseInt(localStorage.getItem(LS_LATENCY), 10);
+let latencyOffsetMs = (!isNaN(_storedLatency) && _storedLatency > 0) ? _storedLatency : 200;
 
 let schedulerTimer = null;
 
@@ -110,25 +111,18 @@ async function startMic() {
   const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
   micSource     = audioCtx.createMediaStreamSource(stream);
   inputGainNode = audioCtx.createGain();
-  inputGainNode.gain.value = parseFloat(document.getElementById('input-gain-slider').value);
+  inputGainNode.gain.value = 3;
   onsetNode = new AudioWorkletNode(audioCtx, 'onset-processor');
   onsetNode.port.onmessage = (e) => {
-    if (e.data.type !== 'onset') return;
-    updateVelocityMeter(e.data.peak);
-    processOnset(e.data);
+    if (e.data.type === 'onset') {
+      updateVelocityMeter(e.data.peak);
+      processOnset(e.data);
+    }
   };
   micSource.connect(inputGainNode);
   inputGainNode.connect(onsetNode);
 }
 
-function applyInputGain(val) {
-  if (inputGainNode) inputGainNode.gain.value = val;
-  document.getElementById('input-gain-value').textContent = `${parseFloat(val).toFixed(0)}×`;
-}
-
-function applyThreshold(ratio) {
-  if (onsetNode) onsetNode.port.postMessage({ type: 'setThreshold', value: ratio });
-}
 
 // ─── Sound synthesis ──────────────────────────────────────────────────────────
 
@@ -179,6 +173,8 @@ function scheduleSnareHit(time, dynamic) {
   oscGain.connect(master);
   osc.start(time);
   osc.stop(time + 0.08);
+
+  return [noise, osc];
 }
 
 
@@ -267,7 +263,8 @@ function processOnset({ time, peak }) {
 
 function startCalibration() {
   if (isRunning) stopMetronome();
-  calState = { phase: 'delay', beats: [], taps: [] };
+  if (!onsetNode) return;
+  calState = { phase: 'delay', started: false, beats: [], taps: [] };
   scheduleDelayCalBeats();
   renderDelayCalPrompt();
 }
@@ -275,15 +272,20 @@ function startCalibration() {
 function scheduleDelayCalBeats() {
   const beatDur = 60 / CAL_DELAY_BPM;
   let t = audioCtx.currentTime + 0.5;
-  for (let i = 0; i < CAL_DELAY_BEATS; i++) {
-    scheduleSnareHit(t, 'accent');
-    calState.beats.push({ time: t, matched: false });
+  // Schedule extra beats so the user has time to find the rhythm before the count starts
+  for (let i = 0; i < CAL_DELAY_BEATS * 3; i++) {
+    const nodes = scheduleSnareHit(t, 'accent');
+    calState.beats.push({ time: t, matched: false, nodes });
     t += beatDur;
   }
-  setTimeout(finalizeDelayCalibration, Math.ceil((t - audioCtx.currentTime + 0.5) * 1000));
+  // No timeout — finalization is triggered by collecting CAL_DELAY_BEATS taps
 }
 
 function handleDelayCalOnset(time) {
+  if (!calState.started) {
+    calState.started = true;
+    renderDelayCalActive();
+  }
   let best = null, bestDist = Infinity;
   for (const b of calState.beats) {
     if (b.matched) continue;
@@ -294,16 +296,24 @@ function handleDelayCalOnset(time) {
     best.matched = true;
     calState.taps.push(time - best.time);
     updateDelayCalProgress();
+    if (calState.taps.length >= CAL_DELAY_BEATS) finalizeDelayCalibration();
   }
 }
 
 function finalizeDelayCalibration() {
   if (!calState || calState.phase !== 'delay') return;
+  // Stop any beats that haven't played yet
+  const now = audioCtx.currentTime;
+  for (const b of calState.beats) {
+    if (b.time > now) {
+      for (const node of b.nodes) { try { node.stop(now); } catch (_) {} }
+    }
+  }
   const taps = calState.taps;
   if (taps.length >= 3) {
     const sorted = [...taps].sort((a, b) => a - b);
     const median = sorted[Math.floor(sorted.length / 2)];
-    latencyOffsetMs = Math.max(-50, Math.min(500, Math.round(median * 1000)));
+    latencyOffsetMs = Math.max(0, Math.min(500, Math.round(median * 1000)));
     document.getElementById('latency-display').textContent = `${latencyOffsetMs}ms`;
     localStorage.setItem(LS_LATENCY, String(latencyOffsetMs));
   }
@@ -316,10 +326,16 @@ function handleCalOnset(peak) {
   updateCalProgress();
   if (calState.readings.length >= CAL_HITS_NEEDED) {
     const sorted = [...calState.readings].sort((a, b) => a - b);
-    cal[CAL_STEPS[calState.step]] = sorted[Math.floor(sorted.length / 2)];
+    const median = sorted[Math.floor(sorted.length / 2)];
+    cal[CAL_STEPS[calState.step]] = median;
+
     calState.step++;
     calState.readings = [];
     if (calState.step >= CAL_STEPS.length) {
+      // Derive the two intermediate levels from the calibrated endpoints
+      const range = cal.loud_accent - cal.low_tap;
+      cal.accent = cal.low_tap + range * (2 / 3);
+      cal.tap    = cal.low_tap + range * (1 / 3);
       calState = null;
       saveCalibration();
       renderCalDone();
@@ -414,84 +430,89 @@ function renderPatternStrip() {
 // ─── Render: feedback panels ──────────────────────────────────────────────────
 
 function renderFeedback() {
-  renderTimingPanel();
-  renderDynamicsPanel();
+  renderPerfCanvas();
 }
 
-function renderTimingPanel() {
-  const container = document.getElementById('timing-bars');
-  container.innerHTML = '';
-  const matched = hitHistory.filter(h => h.matched && h.timingMs !== null);
-  if (matched.length === 0) {
-    container.innerHTML = '<span class="placeholder">Play to see timing feedback</span>';
+function renderPerfCanvas() {
+  const canvas = document.getElementById('perf-canvas');
+  if (!canvas) return;
+  const W = canvas.offsetWidth;
+  const H = canvas.offsetHeight;
+  if (W === 0 || H === 0) return;
+
+  // Setting width/height clears the canvas and matches its intrinsic size to CSS size
+  canvas.width  = W;
+  canvas.height = H;
+  const ctx = canvas.getContext('2d');
+
+  const MAX_MS  = 200;   // ±200 ms timing range
+  const MAX_DYN = 3;     // ±3 ordinal dynamic levels
+
+  const padX = 36, padY = 20;
+  const plotW = W - 2 * padX;
+  const plotH = H - 2 * padY;
+  const cx = padX + plotW / 2;
+  const cy = padY + plotH / 2;
+
+  // Map timing error (ms) to canvas x
+  const toX = ms  => padX + (Math.max(-MAX_MS, Math.min(MAX_MS, ms))  / MAX_MS  + 1) / 2 * plotW;
+  // Map dynamic ordinal error to canvas y (positive = too loud = top)
+  const toY = err => padY + (-Math.max(-MAX_DYN, Math.min(MAX_DYN, err)) / MAX_DYN + 1) / 2 * plotH;
+
+  // Bullseye rings
+  ctx.lineWidth = 1;
+  for (const r of [0.33, 0.66, 1.0]) {
+    ctx.strokeStyle = r === 0.33 ? '#2a3a2a' : '#252525';
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, plotW / 2 * r, plotH / 2 * r, 0, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  // Crosshair
+  ctx.strokeStyle = '#333';
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(padX, cy); ctx.lineTo(W - padX, cy); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(cx, padY); ctx.lineTo(cx, H - padY); ctx.stroke();
+
+  // Axis labels
+  ctx.font = '11px monospace';
+  ctx.fillStyle = '#888';
+  ctx.textAlign = 'left';  ctx.fillText('early', padX + 3, cy - 4);
+  ctx.textAlign = 'right'; ctx.fillText('late',  W - padX - 3, cy - 4);
+  ctx.textAlign = 'center';
+  ctx.fillText('loud', cx, padY + 10);
+  ctx.fillText('soft', cx, H - padY - 4);
+
+  // Hits
+  const hits = hitHistory.filter(h => h.matched && h.timingMs !== null && h.expected);
+  if (hits.length === 0) {
+    ctx.fillStyle = '#444';
+    ctx.font = '11px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('Play to see feedback', cx, cy + 4);
     return;
   }
-  const maxMs = 200;
-  matched.forEach((hit, idx) => {
-    const opacity  = 0.25 + 0.75 * (idx + 1) / matched.length;
-    const pct      = Math.max(-1, Math.min(1, hit.timingMs / maxMs));
-    const xPct     = ((pct + 1) / 2) * 100;
-    let colorClass = 'hit-red';
-    if (Math.abs(hit.timingMs) <= TIMING_GREEN_MS)  colorClass = 'hit-green';
-    else if (Math.abs(hit.timingMs) <= TIMING_YELLOW_MS) colorClass = 'hit-yellow';
 
-    const row   = document.createElement('div');
-    row.className = 'timing-row';
-    row.style.opacity = opacity;
+  hits.forEach((hit, idx) => {
+    const opacity  = 0.2 + 0.8 * (idx + 1) / hits.length;
+    const dynErr   = dynamicOrdinal(hit.detected) - dynamicOrdinal(hit.expected);
+    const x = toX(hit.timingMs);
+    const y = toY(dynErr);
 
-    const track  = document.createElement('div');
-    track.className = 'timing-track';
+    const timingOk    = Math.abs(hit.timingMs) <= TIMING_GREEN_MS;
+    const timingClose = Math.abs(hit.timingMs) <= TIMING_YELLOW_MS;
+    const dynOk       = dynErr === 0;
+    const dynClose    = Math.abs(dynErr) <= 1;
 
-    const center = document.createElement('div');
-    center.className = 'timing-center';
-    track.appendChild(center);
+    let [r, g, b] =
+      (timingOk    && dynOk)    ? [48, 209, 88]   :  // green
+      (timingClose && dynClose) ? [255, 214, 10]   :  // yellow
+                                  [255, 69, 58];       // red
 
-    const dot = document.createElement('div');
-    dot.className = `timing-dot ${colorClass}`;
-    dot.style.left = `${xPct}%`;
-    dot.title = `${hit.timingMs > 0 ? '+' : ''}${hit.timingMs}ms`;
-    track.appendChild(dot);
-
-    const label = document.createElement('span');
-    label.className = `timing-label ${colorClass}`;
-    label.textContent = `${hit.timingMs > 0 ? '+' : ''}${hit.timingMs}ms`;
-
-    row.appendChild(track);
-    row.appendChild(label);
-    container.appendChild(row);
-  });
-}
-
-function renderDynamicsPanel() {
-  const grid = document.getElementById('dynamics-grid');
-  grid.innerHTML = '';
-  if (hitHistory.length === 0) {
-    grid.innerHTML = '<span class="placeholder">Play to see dynamics feedback</span>';
-    return;
-  }
-  hitHistory.forEach((hit, idx) => {
-    const opacity = 0.25 + 0.75 * (idx + 1) / hitHistory.length;
-    const cell    = document.createElement('div');
-    cell.className    = 'dyn-cell';
-    cell.style.opacity = opacity;
-
-    const expEl = document.createElement('div');
-    expEl.className   = 'dyn-expected';
-    expEl.textContent = hit.expected ? DYNAMIC_LABELS[hit.expected] : '?';
-
-    const detEl = document.createElement('div');
-    detEl.className   = 'dyn-detected';
-    detEl.textContent = DYNAMIC_LABELS[hit.detected] || hit.detected;
-
-    let colorClass = 'dyn-unmatched';
-    if (hit.matched && hit.expected) {
-      const dist = Math.abs(dynamicOrdinal(hit.detected) - dynamicOrdinal(hit.expected));
-      colorClass = dist === 0 ? 'dyn-ok' : dist === 1 ? 'dyn-close' : 'dyn-off';
-    }
-    detEl.classList.add(colorClass);
-    cell.appendChild(expEl);
-    cell.appendChild(detEl);
-    grid.appendChild(cell);
+    ctx.beginPath();
+    ctx.arc(x, y, 5, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(${r},${g},${b},${opacity})`;
+    ctx.fill();
   });
 }
 
@@ -499,8 +520,14 @@ function renderDynamicsPanel() {
 
 function renderDelayCalPrompt() {
   const el = document.getElementById('cal-status');
-  el.textContent = `Delay calibration: tap on each beat (${CAL_DELAY_BEATS} beats at ${CAL_DELAY_BPM} BPM)…`;
+  el.textContent = `Delay calibration: beats are playing — start tapping when ready…`;
   el.className   = 'cal-active';
+  document.getElementById('cal-progress').textContent = '';
+}
+
+function renderDelayCalActive() {
+  document.getElementById('cal-status').textContent =
+    `Delay calibration: keep tapping (${CAL_DELAY_BEATS} beats at ${CAL_DELAY_BPM} BPM)…`;
   document.getElementById('cal-progress').textContent = `0 / ${CAL_DELAY_BEATS}`;
 }
 
@@ -524,10 +551,9 @@ function updateCalProgress() {
 
 function renderCalDone() {
   const el = document.getElementById('cal-status');
-  el.textContent = `Calibration complete — latency: ${latencyOffsetMs}ms, thresholds saved.`;
-  el.className   = 'cal-done';
+  el.textContent = '';
+  el.className   = '';
   document.getElementById('cal-progress').textContent = '';
-  setTimeout(() => { el.textContent = ''; el.className = ''; }, 4000);
 }
 
 // ─── Render: velocity meter ───────────────────────────────────────────────────
@@ -597,11 +623,6 @@ async function onCalibrate() {
   startCalibration();
 }
 
-function onSensitivity(val) {
-  document.getElementById('sensitivity-value').textContent = parseFloat(val).toFixed(1);
-  applyThreshold(parseFloat(val));
-}
-
 // ─── Init ─────────────────────────────────────────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -616,13 +637,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     const v = parseInt(e.target.value, 10);
     if (v >= 40 && v <= 300) bpm = v;
   });
-  document.getElementById('sensitivity-slider').addEventListener('input', (e) => {
-    onSensitivity(e.target.value);
-  });
-  document.getElementById('input-gain-slider').addEventListener('input', (e) => {
-    applyInputGain(parseFloat(e.target.value));
-  });
-
   window.addEventListener('resize', renderPatternStrip);
 
   await fetchPatterns();
