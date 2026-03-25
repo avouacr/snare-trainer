@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
       - name: batuc-trainer
-        image: avouacr/batuc-trainer:0.0.1
+        image: avouacr/batuc-trainer:0.0.2
         ports:
         - containerPort: 8000
         resources:
