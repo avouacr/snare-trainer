@@ -1,5 +1,5 @@
 """
-Snare Trainer — stdlib-only static server.
+Batuc Trainer — stdlib-only static server.
 
 Run with:  python main.py
 """
@@ -43,5 +43,5 @@ validate_patterns()
 os.chdir(ROOT)
 socketserver.TCPServer.allow_reuse_address = True
 with socketserver.TCPServer(('', PORT), Handler) as httpd:
-    print(f'Snare Trainer -> http://localhost:{PORT}')
+    print(f'Batuc Trainer -> http://localhost:{PORT}')
     httpd.serve_forever()

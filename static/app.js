@@ -1,11 +1,11 @@
 /**
- * Snare Trainer — main application logic
+ * Batuc Trainer — main application logic
  */
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-const DYNAMICS = ['low_tap', 'tap', 'accent', 'loud_accent'];
-const DYNAMIC_LABELS = { low_tap: 'pp', tap: 'p', accent: 'f', loud_accent: 'ff' };
+const DYNAMICS = ['tap', 'accent'];
+const DYNAMIC_LABELS = { tap: 'p', accent: 'f' };
 
 const TIMING_GREEN_MS  = 20;
 const TIMING_YELLOW_MS = 80;
@@ -16,11 +16,7 @@ const LOOKAHEAD_SEC = 0.1;
 const HISTORY_SIZE = 16;
 const MATCH_WINDOW_SEC = 0.5;
 
-// True-peak defaults (with 3× input gain).
-const DEFAULT_CAL  = { loud_accent: 0.8, accent: 0.5, tap: 0.22, low_tap: 0.07 };
-
-const LS_CAL     = 'snare-trainer-cal';
-const LS_LATENCY = 'snare-trainer-latency';
+const LS_LATENCY = 'batuc-trainer-latency';
 
 // ─── State ────────────────────────────────────────────────────────────────────
 
@@ -39,44 +35,23 @@ let expectedBeats = [];
 let hitHistory    = [];
 let hitsSinceCorrection = 0;
 
-let cal = loadCalibration();
-
 const _storedLatency = parseInt(localStorage.getItem(LS_LATENCY), 10);
 let latencyOffsetMs = (!isNaN(_storedLatency) && _storedLatency > 0) ? _storedLatency : 200;
 
 let schedulerTimer = null;
 
-// ─── Persistence ─────────────────────────────────────────────────────────────
-
-function loadCalibration() {
-  try {
-    const s = localStorage.getItem(LS_CAL);
-    if (s) return JSON.parse(s);
-  } catch (_) {}
-  return { ...DEFAULT_CAL };
-}
-function saveCalibration() {
-  localStorage.setItem(LS_CAL, JSON.stringify(cal));
-}
-
 // ─── Utility ─────────────────────────────────────────────────────────────────
 
 function peakToDynamic(peak) {
-  const { low_tap: lo, tap: ta, accent: ac, loud_accent: la } = cal;
-  if (peak >= (ac + la) / 2) return 'loud_accent';
-  if (peak >= (ta + ac) / 2) return 'accent';
-  if (peak >= (lo + ta) / 2) return 'tap';
-  return 'low_tap';
+  return peak >= 0.4 ? 'accent' : 'tap';
 }
-
-function dynamicOrdinal(d) { return DYNAMICS.indexOf(d); }
 
 function buildBeatList(pat) {
   const beats = [];
   for (let i = 0; i < pat.pattern.length; i++) {
     const ch = pat.pattern[i];
-    if (ch === 'X') beats.push({ pos: i, dynamic: 'loud_accent' });
-    else if (ch === 'o') beats.push({ pos: i, dynamic: 'low_tap' });
+    if (ch === 'X') beats.push({ pos: i, dynamic: 'accent' });
+    else if (ch === 'o') beats.push({ pos: i, dynamic: 'tap' });
     // '-' = rest, omitted
   }
   return beats;
@@ -118,7 +93,7 @@ async function startMic() {
 // Synthesize a snare hit: noise burst (snare wires) + pitched transient (drum head).
 // Volume scales with dynamic level.
 function scheduleSnareHit(time, dynamic) {
-  const vol = { loud_accent: 1.0, accent: 0.7, tap: 0.42, low_tap: 0.2 }[dynamic] ?? 0.5;
+  const vol = { accent: 1.0, tap: 0.2 }[dynamic] ?? 0.5;
 
   const master = audioCtx.createGain();
   master.gain.value = vol;
